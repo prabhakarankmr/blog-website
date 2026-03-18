@@ -199,20 +199,166 @@ export default function AuthBlogPage() {
           </code>
         </pre>
 
-        <div className="highlight-block animate-fade-in">
-          <p className="blog-p font-serif"><strong>The main lesson:</strong> authentication and session management aren&apos;t the same thing. JWT solves the first problem — proving identity on each request without hitting the database. Session management solves the second — control over active connections.</p>
+        <p className="blog-p font-serif">Key fields: <code className="inline-code">is_active</code> is the kill switch. Setting it to <code className="inline-code">false</code> immediately invalidates that session — the next time that device makes a request, it gets a 401.</p>
+
+        <h3 className="section-h3 font-heading">Session API Endpoints</h3>
+
+        <table className="compare-table font-mono">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Endpoint</th>
+              <th>Purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code className="inline-code">POST</code></td>
+              <td><code className="inline-code">/auth/sessions</code></td>
+              <td>Create session on login</td>
+            </tr>
+            <tr>
+              <td><code className="inline-code">GET</code></td>
+              <td><code className="inline-code">/auth/sessions</code></td>
+              <td>List all active sessions for user</td>
+            </tr>
+            <tr>
+              <td><code className="inline-code">DELETE</code></td>
+              <td><code className="inline-code">/auth/sessions/:id</code></td>
+              <td>Log out a specific device</td>
+            </tr>
+            <tr>
+              <td><code className="inline-code">DELETE</code></td>
+              <td><code className="inline-code">/auth/sessions/all</code></td>
+              <td>Log out from all devices</td>
+            </tr>
+            <tr>
+              <td><code className="inline-code">PUT</code></td>
+              <td><code className="inline-code">/auth/sessions/refresh</code></td>
+              <td>Update last activity timestamp</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 className="section-h2 font-heading" data-num="06 —">The Remote Logout Flow</h2>
+
+        <div className="sequence font-mono">
+          <div className="seq-title">Remote Session Invalidation</div>
+          <div className="seq-actors">
+            <div className="seq-actor">Device A</div>
+            <div className="seq-actor">Backend</div>
+            <div className="seq-actor">Database</div>
+            <div className="seq-actor">Device B</div>
+          </div>
+          <div className="seq-step">
+            <div className="seq-num">1</div>
+            <div className="seq-desc"><strong>Device A</strong> <span className="seq-arrow">→</span> DELETE /auth/sessions/:id (Device B&apos;s session ID)</div>
+          </div>
+          <div className="seq-step">
+            <div className="seq-num">2</div>
+            <div className="seq-desc"><strong>Backend</strong> <span className="seq-arrow">→</span> sets <code className="inline-code">is_active = false</code> in DB for that session</div>
+          </div>
+          <div className="seq-step">
+            <div className="seq-num">3</div>
+            <div className="seq-desc"><strong>Device B</strong> makes any API request — session check fails</div>
+          </div>
+          <div className="seq-step">
+            <div className="seq-num">4</div>
+            <div className="seq-desc"><strong>Backend</strong> <span className="seq-arrow">→</span> returns <code className="inline-code">401 Unauthorized</code> to Device B</div>
+          </div>
+          <div className="seq-step">
+            <div className="seq-num">5</div>
+            <div className="seq-desc"><strong>Device B</strong> redirected to login screen</div>
+          </div>
         </div>
+
+        <h2 className="section-h2 font-heading" data-num="07 —">Local vs Backend Sessions — The Tradeoffs</h2>
+
+        <table className="compare-table font-serif">
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Local Only</th>
+              <th>Backend (Hybrid)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Session persistence</td>
+              <td className="yes">✓ Yes</td>
+              <td className="yes">✓ Yes</td>
+            </tr>
+            <tr>
+              <td>Remote logout</td>
+              <td className="no">✗ No</td>
+              <td className="yes">✓ Yes</td>
+            </tr>
+            <tr>
+              <td>View active devices</td>
+              <td className="no">✗ No</td>
+              <td className="yes">✓ Yes</td>
+            </tr>
+            <tr>
+              <td>Server-side validation</td>
+              <td className="no">✗ No</td>
+              <td className="yes">✓ Yes</td>
+            </tr>
+            <tr>
+              <td>Works offline</td>
+              <td className="yes">✓ Yes</td>
+              <td className="partial">⚠ Partial</td>
+            </tr>
+            <tr>
+              <td>Security level</td>
+              <td className="no">Low</td>
+              <td className="yes">High</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p className="blog-p font-serif">The hybrid approach is what Google, Apple, and most serious platforms use. The JWT handles fast stateless verification on every request; the session record handles the stateful control plane — revocation, device listing, expiry management.</p>
+
+        <h2 className="section-h2 font-heading" data-num="08 —">What I&apos;d Do Differently</h2>
+
+        <p className="blog-p font-serif">Looking back, a few things I&apos;d think about more carefully next time:</p>
+
+        <ul className="blog-ul font-serif">
+          <li className="blog-li"><strong>Token refresh flow.</strong> Short-lived access tokens (15 min) paired with long-lived refresh tokens is more secure than a single long-lived JWT. On expiry, the client silently fetches a new access token using the refresh token — unless that session has been revoked.</li>
+          <li className="blog-li"><strong>Session fingerprinting.</strong> Storing device info (OS, browser, IP) at session creation and flagging anomalies when they change dramatically can catch session hijacking.</li>
+          <li className="blog-li"><strong>Soft delete vs hard delete.</strong> Keeping invalidated sessions in the DB (soft delete with <code className="inline-code">is_active = false</code>) gives you an audit log — who was logged in from where and when.</li>
+          <li className="blog-li"><strong>Rate limiting on auth endpoints.</strong> Login routes should be rate-limited. Brute force against a PIN-based auth is trivial without it.</li>
+        </ul>
+
+        <div className="highlight-block animate-fade-in">
+          <p className="blog-p font-serif"><strong>The main lesson:</strong> authentication and session management aren&apos;t the same thing. JWT solves the first problem — proving identity on each request without hitting the database. Session management solves the second — giving users and admins control over <em>which</em> instances of that identity are currently active.</p>
+          <p className="blog-p font-serif">Building both together, even as a learner, changes how you think about what &quot;logged in&quot; actually means.</p>
+        </div>
+
+        <h2 className="section-h2 font-heading" data-num="09 —">Testing This Works</h2>
+
+        <p className="blog-p font-serif">The verification steps I used, which I&apos;d recommend for anyone implementing this:</p>
+
+        <ol className="blog-ol font-serif">
+          <li className="blog-li"><strong>Login test:</strong> Check the <code className="inline-code">user_sessions</code> table directly after login — confirm a row was created with the correct user ID, device info, and <code className="inline-code">is_active = true</code>.</li>
+          <li className="blog-li"><strong>Multi-device test:</strong> Log in from two devices (or two browser tabs with different credentials). <code className="inline-code">GET /auth/sessions</code> should return both.</li>
+          <li className="blog-li"><strong>Remote logout test:</strong> From Device A, delete Device B&apos;s session ID. Make any authenticated request from Device B — it must return <code className="inline-code">401</code>.</li>
+          <li className="blog-li"><strong>Logout-all test:</strong> Call <code className="inline-code">DELETE /auth/sessions/all</code>. Every other active session should immediately start returning <code className="inline-code">401</code>.</li>
+        </ol>
+
+        <hr className="divider" />
+
+        <p className="blog-p font-serif">Authentication feels like solved infrastructure until you have to own it yourself. The moment you need remote logout, device tracking, or token revocation, the gaps become obvious fast. The good news: the patterns are well-established, and NestJS + Passport make the implementation cleaner than you&apos;d expect.</p>
+
+        <p className="font-serif italic text-[var(--blog-muted)]" style={{ opacity: 0.8 }}>If you found this useful or have questions about any part of the implementation, feel free to reach out.</p>
       </main>
 
       <footer className="border-t border-[var(--blog-border)] py-12 px-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
-          <div className="text-sm font-mono text-[var(--blog-muted)]">
-            © 2026 DEV_BLOG // BUILD_042
+          <div className="footer-left font-mono">
+            Written from hands-on implementation experience &nbsp;·&nbsp; 2026
           </div>
-          <div className="flex gap-8 text-[11px] font-mono tracking-widest uppercase text-[var(--blog-text-dim)]">
-            <a href="#" className="hover:text-[var(--blog-accent)] transition-colors">Twitter</a>
-            <a href="#" className="hover:text-[var(--blog-accent)] transition-colors">GitHub</a>
-            <a href="#" className="hover:text-[var(--blog-accent)] transition-colors">LinkedIn</a>
+          <div className="flex gap-4">
+            <span className="footer-tag font-mono text-[var(--blog-accent2)] text-[10px] tracking-widest uppercase">JWT · NestJS · Sessions · Security</span>
           </div>
         </div>
       </footer>
